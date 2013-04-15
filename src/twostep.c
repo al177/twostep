@@ -2,17 +2,26 @@
 #include "pebble_app.h"
 #include "pebble_fonts.h"
 
+/********CONFIGURE THIS********/
+
 // Your shared key, BASE64 
+// sample key is base32 "JBSWY3DPEHPK3PXP"
 const unsigned char sha1_key[] = {
 	'H', 'e', 'l', 'l', 'o', '!', 0xDE, 0xAD, 0xBE, 0xEF
 };
-// 
+// size of the above key in bytes
 #define SECRET_SIZE 10	
-
+// current time zone offset 
 #define TIME_ZONE_OFFSET -5
-// Truncate n decimal digits to 2^n 
+
+/******************************/
+
+
+// Truncate n decimal digits to 2^n for 6 digits
 #define DIGITS_TRUNCATE 1000000
+
 #define SHA1_SIZE 20
+
 #define MY_UUID { 0xA4, 0xA6, 0x13, 0xB5, 0x8A, 0x6B, 0x4F, 0xF0, 0xBD, 0x80, 0x00, 0x38, 0xA1, 0x51, 0xCD, 0x86 }
 PBL_APP_INFO(MY_UUID,
 		"Two Step Token", "pokey9000",
