@@ -24,9 +24,9 @@ const unsigned char sha1_key[] = {
 
 #define MY_UUID { 0xA4, 0xA6, 0x13, 0xB5, 0x8A, 0x6B, 0x4F, 0xF0, 0xBD, 0x80, 0x00, 0x38, 0xA1, 0x51, 0xCD, 0x86 }
 PBL_APP_INFO(MY_UUID,
-		"Two Step Token", "pokey9000",
-		1, 0, /* App version */
-		DEFAULT_MENU_ICON,
+		"Twostep Auth", "pokey9000",
+		1, 1, /* App version */
+		RESOURCE_ID_IMAGE_MENU_ICON,
 		APP_INFO_STANDARD_APP);
 
 Window window;
@@ -39,7 +39,6 @@ TextLayer tokenLayer;
  * placed in the public domain by Wei Dai and other contributors.
  */
 
-//#include <stdint.h>
 #include <string.h>
 
 /* header */
@@ -230,21 +229,10 @@ uint8_t* sha1_resultHmac(sha1nfo *s) {
 
 /* end sha1.c */
 
-
-
-void handle_second_tick(AppContextRef ctx, PebbleTickEvent *t) {
-
-	(void)t;
-	(void)ctx;
-
-	static char tokenText[] = "RYRYRYRYRY"; // Needs to be static because it's used by the system later.
-
+// return seconds since epoch compensating for Pebble's lack of location
+// independent GMT
+uint32_t get_epoch_seconds() {
 	PblTm current_time;
-	sha1nfo s;
-	uint8_t ofs;
-	uint32_t otp;
-	int i;
-	char sha1_time[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 	uint32_t unix_time;
 	get_time(&current_time);
 	
@@ -256,17 +244,41 @@ void handle_second_tick(AppContextRef ctx, PebbleTickEvent *t) {
 		+ current_time.tm_hour*3600 /* add hours */                                    + current_time.tm_yday*86400 /* add days */
 		+ (current_time.tm_year-70)*31536000 /* add years since 1970 */                + ((current_time.tm_year-69)/4)*86400 /* add a day after leap years, starting in 1973 */                                                                       - ((current_time.tm_year-1)/100)*86400 /* remove a leap day every 100 years, starting in 2001 */                                                               + ((current_time.tm_year+299)/400)*86400; /* add a leap day back every 400 years, starting in 2001*/
 	unix_time /= 30;
+	return unix_time;
+}
+
+void handle_second_tick(AppContextRef ctx, PebbleTickEvent *t) {
+
+	(void)t;
+	(void)ctx;
+
+	static char tokenText[] = "RYRYRY"; // Needs to be static because it's used by the system later.
+
+	sha1nfo s;
+	uint8_t ofs;
+	uint32_t otp;
+	int i;
+	uint32_t unix_time;
+	char sha1_time[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+
+	// TOTP uses seconds since epoch in the upper half of an 8 byte payload
+	// TOTP is HOTP with a time based payload
+	// HOTP is HMAC with a truncation function to get a short decimal key
+	unix_time = get_epoch_seconds();
 	sha1_time[4] = (unix_time >> 24) & 0xFF;
 	sha1_time[5] = (unix_time >> 16) & 0xFF;
 	sha1_time[6] = (unix_time >> 8) & 0xFF;
 	sha1_time[7] = unix_time & 0xFF;
 
+	// First get the HMAC hash of the time payload with the shared key
 	sha1_initHmac(&s, sha1_key, SECRET_SIZE);
 	sha1_write(&s, sha1_time, 8);
 	sha1_resultHmac(&s);
 	
+	// Then do the HOTP truncation.  HOTP pulls its result from a 31-bit byte
+	// aligned window in the HMAC result, then lops off digits to the left
+	// over 6 digits.
 	ofs=s.state.b[SHA1_SIZE-1] & 0xf;
-
 	otp = 0;
 	otp = ((s.state.b[ofs] & 0x7f) << 24) |
 		((s.state.b[ofs + 1] & 0xff) << 16) |
@@ -274,14 +286,14 @@ void handle_second_tick(AppContextRef ctx, PebbleTickEvent *t) {
 		(s.state.b[ofs + 3] & 0xff);
 	otp %= DIGITS_TRUNCATE;
 	
+	// Convert result into a string.  Sure wish we had working snprintf...
 	for(i = 0; i < 6; i++) {
 		tokenText[5-i] = 0x30 + (otp % 10);
 		otp /= 10;
 	}
 	tokenText[6]=0;
-
+	
 	text_layer_set_text(&tokenLayer, tokenText);
-
 }
 
 void handle_init(AppContextRef ctx) {
@@ -292,15 +304,12 @@ void handle_init(AppContextRef ctx) {
 	window_set_background_color(&window, GColorBlack);
 
 	// Init the text layer used to show the time
-	// TODO: Wrap this boilerplate in a function?
-
-	text_layer_init(&tokenLayer, GRect(8, 44, 144-8 /* width */, 168-44 /* height */));
+	text_layer_init(&tokenLayer, GRect(4, 44, 144-4 /* width */, 168-44 /* height */));
 	text_layer_set_text_color(&tokenLayer, GColorWhite);
 	text_layer_set_background_color(&tokenLayer, GColorClear);
 	text_layer_set_font(&tokenLayer, fonts_get_system_font(FONT_KEY_GOTHAM_34_MEDIUM_NUMBERS));
 
 	handle_second_tick(ctx, NULL);
-
 	layer_add_child(&window.layer, &tokenLayer.layer);
 }
 
